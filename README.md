@@ -1,11 +1,22 @@
-<div align="center">
+# FB AI Automation - Chrome Extension
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Dự án này là một Chrome Extension giúp tự động hóa các tác vụ trên Facebook sử dụng Gemini AI.
 
-  <h1>Built with AI Studio</h2>
+## Cấu trúc thư mục quan trọng:
+- `public/manifest.json`: Cấu hình Extension.
+- `src/background.ts`: Xử lý chạy ngầm, quản lý Login và Alarms.
+- `src/content.ts`: Tương tác trực tiếp với giao diện Facebook.
+- `src/popup.tsx`: Giao diện điều khiển người dùng.
+- `vite.config.ts`: Cấu hình đóng gói dự án.
+- `package.json`: Các thư viện phụ thuộc.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## Hướng dẫn cài đặt trên máy tính:
+1. Giải nén file ZIP.
+2. Mở Terminal tại thư mục đã giải nén.
+3. Chạy lệnh: `npm install`
+4. Chạy lệnh: `npm run build`
+5. Mở Chrome, vào `chrome://extensions/`, bật "Developer mode".
+6. Chọn "Load unpacked" và trỏ đến thư mục `dist` vừa được tạo ra.
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+## Lưu ý:
+Đảm bảo bạn đã tạo file `.env` với `VITE_GEMINI_API_KEY` của mình trước khi build.
