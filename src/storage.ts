@@ -14,6 +14,7 @@ export interface AuthState {
   isConnected: boolean;
   lastSync: string | null;
   geminiApiKey: string | null;
+  knowledgeBase: string | null;
 }
 
 export const getAuthState = async (): Promise<AuthState> => {
@@ -23,6 +24,7 @@ export const getAuthState = async (): Promise<AuthState> => {
   const isConnected = await storage.get<boolean>("isConnected");
   const lastSync = await storage.get("lastSync");
   const geminiApiKey = await storage.get("geminiApiKey");
+  const knowledgeBase = await storage.get("knowledgeBase");
 
   return {
     uid: uid || null,
@@ -30,6 +32,7 @@ export const getAuthState = async (): Promise<AuthState> => {
     token: token || null,
     isConnected: !!isConnected,
     lastSync: lastSync || null,
-    geminiApiKey: geminiApiKey || null
+    geminiApiKey: geminiApiKey || null,
+    knowledgeBase: knowledgeBase || null
   };
 };

@@ -74,7 +74,8 @@ const Popup = () => {
     token: null,
     isConnected: false,
     lastSync: null,
-    geminiApiKey: null
+    geminiApiKey: null,
+    knowledgeBase: null
   });
   const [isScanning, setIsScanning] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -123,7 +124,8 @@ const Popup = () => {
     price: "3.5 tỷ",
     features: ["View sông", "Full nội thất", "Sổ hồng riêng"],
     goal: "find_buyer" as "find_buyer" | "find_tenant" | "news" | "urgent",
-    numVariations: 3
+    numVariations: 10,
+    randomize: true
   });
   const [aiVariations, setAiVariations] = useState<string[]>([]);
   const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
@@ -131,6 +133,8 @@ const Popup = () => {
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [friendActivityFilter, setFriendActivityFilter] = useState(5); // 5 months
   const [unfriendActivityFilter, setUnfriendActivityFilter] = useState(3); // 3 months
+  const [knowledgeBase, setKnowledgeBase] = useState("");
+  const [profilePic, setProfilePic] = useState<string | null>(null);
 
   // Settings State
   const [settings, setSettings] = useState({
@@ -144,7 +148,11 @@ const Popup = () => {
     const init = async () => {
       const state = await getAuthState();
       setAuthState(state);
+      setKnowledgeBase(state.knowledgeBase || "");
       
+      const pPic = await storage.get<string>("profilePic");
+      setProfilePic(pPic || null);
+
       const sUrl = await storage.get<string>("supabaseUrl");
       const sKey = await storage.get<string>("supabaseKey");
       setSettings({
@@ -158,10 +166,12 @@ const Popup = () => {
     fetchJoinedGroups();
 
     // Lắng nghe thay đổi từ storage
-    const watchKeys = ["uid", "userName", "token", "isConnected", "lastSync", "geminiApiKey"];
+    const watchKeys = ["uid", "userName", "token", "isConnected", "lastSync", "geminiApiKey", "knowledgeBase", "profilePic"];
     const unsubscribes = watchKeys.map(key => 
       storage.watch({
         [key]: (c) => {
+          if (key === "profilePic") setProfilePic(c.newValue as string);
+          if (key === "knowledgeBase") setKnowledgeBase(c.newValue as string);
           setAuthState(prev => ({ 
             ...prev, 
             [key]: key === "isConnected" ? !!c.newValue : c.newValue 
@@ -328,7 +338,10 @@ const Popup = () => {
   const handleGeneratePost = async () => {
     setIsGenerating(true);
     try {
-      const variations = await generateMultiplePosts(postData);
+      const variations = await generateMultiplePosts({
+        ...postData,
+        knowledgeBase: knowledgeBase
+      });
       setAiVariations(variations);
       showToast("Đã tạo nội dung AI thành công!", "success");
     } catch (error) {
@@ -339,6 +352,27 @@ const Popup = () => {
   };
 
   const handlePostNow = (content: string) => {
+    if (selectedJoinedGroups.length > 0) {
+      // Đăng lên nhiều nhóm
+      selectedJoinedGroups.forEach((groupId, index) => {
+        const finalContent = postData.randomize && aiVariations.length > 0 
+          ? aiVariations[Math.floor(Math.random() * aiVariations.length)]
+          : content;
+          
+        setTimeout(() => {
+          chrome.tabs.create({ url: `https://www.facebook.com/groups/${groupId}`, active: false }, (tab) => {
+            if (tab.id) {
+              setTimeout(() => {
+                chrome.tabs.sendMessage(tab.id!, { action: "AUTO_FILL_POST", content: finalContent });
+              }, 5000);
+            }
+          });
+        }, index * 5000);
+      });
+      showToast(`Đang thực hiện đăng bài lên ${selectedJoinedGroups.length} nhóm...`, "success");
+      return;
+    }
+
     if (typeof chrome !== "undefined" && chrome.tabs) {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
@@ -359,44 +393,34 @@ const Popup = () => {
       return;
     }
 
-    // Lấy URL hiện tại nếu đang ở trang nhóm Facebook
-    let groupUrl = "https://www.facebook.com";
-    if (typeof chrome !== "undefined" && chrome.tabs) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.url?.includes("facebook.com/groups/")) {
-          groupUrl = tabs[0].url;
-        }
-        
-        const newPost = {
-          id: Date.now().toString(),
-          content,
-          scheduledAt: scheduleTime,
-          status: "pending",
-          createdAt: new Date().toISOString(),
-          groupUrl
-        };
+    const groupsToPost = selectedJoinedGroups.length > 0 ? selectedJoinedGroups : [null];
+    
+    groupsToPost.forEach((groupId, index) => {
+      const finalContent = postData.randomize && aiVariations.length > 0 
+        ? aiVariations[Math.floor(Math.random() * aiVariations.length)]
+        : content;
 
-        if (chrome.runtime) {
-          chrome.runtime.sendMessage({ action: "SCHEDULE_POST", post: newPost }, (response) => {
-            if (response?.success) {
-              setScheduledPosts(prev => [...prev, newPost]);
-              showToast("Đã lên lịch đăng bài!", "success");
-            }
-          });
-        }
-      });
-    } else {
       const newPost = {
-        id: Date.now().toString(),
-        content,
-        scheduledAt: scheduleTime,
+        id: `${Date.now()}_${index}`,
+        content: finalContent,
+        scheduledAt: new Date(new Date(scheduleTime).getTime() + index * 60000).toISOString(), // Cách nhau 1 phút
         status: "pending",
         createdAt: new Date().toISOString(),
-        groupUrl
+        groupUrl: groupId ? `https://www.facebook.com/groups/${groupId}` : "https://www.facebook.com"
       };
-      setScheduledPosts(prev => [...prev, newPost]);
-      showToast("Mock: Đã lên lịch đăng bài!", "success");
-    }
+
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime.sendMessage({ action: "SCHEDULE_POST", post: newPost }, (response) => {
+          if (response?.success) {
+            setScheduledPosts(prev => [...prev, newPost]);
+          }
+        });
+      } else {
+        setScheduledPosts(prev => [...prev, newPost]);
+      }
+    });
+
+    showToast(`Đã lên lịch đăng bài cho ${groupsToPost.length} mục tiêu!`, "success");
   };
 
   const handleOpenGroup = (groupId: string) => {
@@ -461,6 +485,11 @@ const Popup = () => {
     setShowSettings(false);
   };
 
+  const handleSaveKnowledge = async () => {
+    await storage.set("knowledgeBase", knowledgeBase);
+    showToast("Đã cập nhật kiến thức AI!", "success");
+  };
+
   const filteredGroups = groups.filter(g => 
     g.name.toLowerCase().includes(groupFilter.keyword.toLowerCase()) && 
     g.members >= groupFilter.minMembers
@@ -492,7 +521,17 @@ const Popup = () => {
       <header className="bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 border border-blue-200 overflow-hidden relative">
-            {authState.uid ? (
+            {profilePic ? (
+              <img 
+                src={profilePic} 
+                alt="Avatar"
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = `https://graph.facebook.com/${authState.uid}/picture?type=square`;
+                }}
+              />
+            ) : authState.uid ? (
               <img 
                 src={`https://graph.facebook.com/${authState.uid}/picture?type=square`} 
                 alt="Avatar"
@@ -691,7 +730,12 @@ const Popup = () => {
                           }}
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-bold text-slate-700 truncate">{group.name}</p>
+                          <button 
+                            onClick={() => handleOpenGroup(group.id)}
+                            className="text-[11px] font-bold text-slate-700 truncate hover:text-blue-600 hover:underline text-left w-full"
+                          >
+                            {group.name}
+                          </button>
                           <p className="text-[9px] text-slate-500">{group.members.toLocaleString()} thành viên</p>
                         </div>
                         <button 
@@ -790,6 +834,27 @@ const Popup = () => {
                 className="space-y-4"
               >
                 <h2 className="text-sm font-bold text-slate-800">AI Insights & Học Tập</h2>
+                
+                {/* Knowledge Base Input */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[11px] font-bold text-slate-700 uppercase">Kiến thức thực tế cho AI</h3>
+                    <button 
+                      onClick={handleSaveKnowledge}
+                      className="text-[10px] text-blue-600 font-bold hover:underline"
+                    >
+                      Lưu kiến thức
+                    </button>
+                  </div>
+                  <textarea 
+                    placeholder="Nhập tình huống mẫu, tin nhắn tư vấn, hoặc link Google Sheet kiến thức..."
+                    className="w-full h-24 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none resize-none"
+                    value={knowledgeBase}
+                    onChange={(e) => setKnowledgeBase(e.target.value)}
+                  />
+                  <p className="text-[9px] text-slate-400 italic">AI sẽ học từ nội dung này để tạo bài viết và tin nhắn tư vấn sát thực tế hơn.</p>
+                </div>
+
                 <div className="space-y-3">
                   {[
                     { title: "Mẫu tin Bán Căn Hộ Hot", engagement: "2.4k", content: "🔥 SIÊU PHẨM QUẬN 2 - VIEW SÔNG TRỰC DIỆN..." },
@@ -1003,22 +1068,36 @@ const Popup = () => {
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Số phiên bản (A/B)</label>
                     <input 
                       type="number"
+                      min="1"
+                      max="10"
                       className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-blue-500"
                       value={postData.numVariations}
                       onChange={e => setPostData({...postData, numVariations: parseInt(e.target.value) || 1})}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                      <Clock size={10} /> Lịch đăng
+                  <div className="flex items-end pb-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={postData.randomize}
+                        onChange={(e) => setPostData({...postData, randomize: e.target.checked})}
+                        className="w-3 h-3 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">Random nội dung</span>
                     </label>
-                    <input 
-                      type="datetime-local"
-                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] outline-none focus:ring-1 focus:ring-blue-500"
-                      value={scheduleTime}
-                      onChange={e => setScheduleTime(e.target.value)}
-                    />
                   </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                    <Clock size={10} /> Lịch đăng
+                  </label>
+                  <input 
+                    type="datetime-local"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] outline-none focus:ring-1 focus:ring-blue-500"
+                    value={scheduleTime}
+                    onChange={e => setScheduleTime(e.target.value)}
+                  />
                 </div>
 
                 <button 

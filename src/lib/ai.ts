@@ -48,7 +48,8 @@ export const generateMultiplePosts = async (data: {
   price: string, 
   features: string[],
   goal: string,
-  numVariations: number 
+  numVariations: number,
+  knowledgeBase?: string
 }): Promise<string[]> => {
   const apiKey = await getApiKey();
   if (!apiKey) throw new Error("Vui lòng cấu hình Gemini API Key.");
@@ -63,6 +64,7 @@ export const generateMultiplePosts = async (data: {
     - Giá: ${data.price}
     - Đặc điểm: ${data.features.join(", ")}
     - Mục tiêu: ${data.goal}
+    ${data.knowledgeBase ? `- Kiến thức bổ sung: ${data.knowledgeBase}` : ""}
 
     Yêu cầu các phiên bản phải có phong cách khác nhau:
     1. Hài hước, gần gũi.
@@ -70,6 +72,7 @@ export const generateMultiplePosts = async (data: {
     3. Gây tò mò, bí ẩn.
     4. Tập trung vào con số, lợi nhuận đầu tư.
     5. Ngắn gọn, súc tích (Brutalist).
+    6. Các phong cách khác phù hợp với thị trường.
 
     QUAN TRỌNG (Compliance): 
     - Tuân thủ Tiêu chuẩn cộng đồng Facebook (Check FB Community Standards).
