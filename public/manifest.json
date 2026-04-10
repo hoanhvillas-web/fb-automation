@@ -28,8 +28,5 @@
       "matches": ["https://*.facebook.com/*"],
       "js": ["content.js"]
     }
-  ],
-  "icons": {
-    "128": "icons/icon128.png"
-  }
+  ]
 }

@@ -148,5 +148,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 
+  // Hủy kết bạn
+  if (message.action === "UNFRIEND_USER") {
+    const friendBtn = Array.from(document.querySelectorAll('div[role="button"]'))
+      .find(btn => {
+        const text = (btn as HTMLElement).innerText?.toLowerCase();
+        return text === 'bạn bè' || text === 'friends';
+      }) as HTMLElement;
+
+    if (friendBtn) {
+      friendBtn.click();
+      setTimeout(() => {
+        const unfriendBtn = Array.from(document.querySelectorAll('div[role="menuitem"]'))
+          .find(btn => {
+            const text = (btn as HTMLElement).innerText?.toLowerCase();
+            return text === 'hủy kết bạn' || text === 'unfriend';
+          }) as HTMLElement;
+
+        if (unfriendBtn) {
+          unfriendBtn.click();
+          setTimeout(() => {
+            const confirmBtn = Array.from(document.querySelectorAll('div[role="button"]'))
+              .find(btn => {
+                const text = (btn as HTMLElement).innerText?.toLowerCase();
+                return text === 'xác nhận' || text === 'confirm';
+              }) as HTMLElement;
+            if (confirmBtn) confirmBtn.click();
+          }, 1000);
+        }
+      }, 1000);
+    }
+  }
+
   return true;
 });

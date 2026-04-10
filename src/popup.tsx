@@ -92,6 +92,12 @@ const Popup = () => {
   ]);
   const [groupFilter, setGroupFilter] = useState({ keyword: "", minMembers: 0 });
   const [scrapedLeads, setScrapedLeads] = useState<Lead[]>([]);
+  const [friends, setFriends] = useState<any[]>([]);
+  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+  const [joinedGroups, setJoinedGroups] = useState<Group[]>([]);
+  const [selectedJoinedGroups, setSelectedJoinedGroups] = useState<string[]>([]);
+  const [isFetchingFriends, setIsFetchingFriends] = useState(false);
+  const [isFetchingGroups, setIsFetchingGroups] = useState(false);
   
   // Load leads and scheduled posts from storage on init
   useEffect(() => {
@@ -148,6 +154,8 @@ const Popup = () => {
       });
     };
     init();
+    fetchFriends();
+    fetchJoinedGroups();
 
     // Lắng nghe thay đổi từ storage
     const watchKeys = ["uid", "userName", "token", "isConnected", "lastSync", "geminiApiKey"];
@@ -179,6 +187,30 @@ const Popup = () => {
 
   const showToast = (message: string, type: "success" | "info" | "error" = "info") => {
     setToast({ message, type });
+  };
+
+  const fetchFriends = () => {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      setIsFetchingFriends(true);
+      chrome.runtime.sendMessage({ action: "GET_FRIENDS" }, (response) => {
+        setIsFetchingFriends(false);
+        if (response?.success) {
+          setFriends(response.friends);
+        }
+      });
+    }
+  };
+
+  const fetchJoinedGroups = () => {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      setIsFetchingGroups(true);
+      chrome.runtime.sendMessage({ action: "GET_JOINED_GROUPS" }, (response) => {
+        setIsFetchingGroups(false);
+        if (response?.success) {
+          setJoinedGroups(response.groups);
+        }
+      });
+    }
   };
 
   const handleScan = () => {
@@ -390,9 +422,14 @@ const Popup = () => {
   };
 
   const handleUnfriendInactive = () => {
-    chrome.runtime.sendMessage({ action: "UNFRIEND_INACTIVE", months: unfriendActivityFilter }, (response) => {
+    if (selectedFriends.length === 0) {
+      showToast("Vui lòng chọn ít nhất một người bạn.", "error");
+      return;
+    }
+    chrome.runtime.sendMessage({ action: "UNFRIEND_INACTIVE", uids: selectedFriends }, (response) => {
       if (response?.success) {
-        showToast(`Bắt đầu lọc bạn bè không hoạt động trong ${unfriendActivityFilter} tháng.`, "success");
+        showToast(`Bắt đầu hủy kết bạn với ${selectedFriends.length} người.`, "success");
+        setSelectedFriends([]);
       }
     });
   };
@@ -601,14 +638,23 @@ const Popup = () => {
               >
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-bold text-slate-800">Quản lý Nhóm</h2>
-                  <button 
-                    onClick={handleSearchGroups}
-                    disabled={isSearchingGroups}
-                    className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50"
-                  >
-                    {isSearchingGroups ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
-                    Tìm Nhóm Mới
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={fetchJoinedGroups}
+                      className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                      title="Làm mới danh sách nhóm"
+                    >
+                      <RefreshCw size={14} className={isFetchingGroups ? "animate-spin" : ""} />
+                    </button>
+                    <button 
+                      onClick={handleSearchGroups}
+                      disabled={isSearchingGroups}
+                      className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {isSearchingGroups ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
+                      Tìm Nhóm Mới
+                    </button>
+                  </div>
                 </div>
 
                 {/* Filters */}
@@ -624,135 +670,74 @@ const Popup = () => {
                         onChange={(e) => setGroupFilter({...groupFilter, keyword: e.target.value})}
                       />
                     </div>
-                    <select 
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] outline-none"
-                      value={groupFilter.minMembers}
-                      onChange={(e) => setGroupFilter({...groupFilter, minMembers: parseInt(e.target.value)})}
-                    >
-                      <option value="0">Tất cả quy mô</option>
-                      <option value="1000">1k+ mem</option>
-                      <option value="5000">5k+ mem</option>
-                      <option value="10000">10k+ mem</option>
-                      <option value="50000">50k+ mem</option>
-                    </select>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Cấu hình Quét AI</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <select 
-                        className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] outline-none"
-                        value={scrapeFilters.gender}
-                        onChange={(e) => setScrapeFilters({...scrapeFilters, gender: e.target.value})}
-                      >
-                        <option value="all">Mọi giới tính</option>
-                        <option value="Nam">Chỉ Nam</option>
-                        <option value="Nữ">Chỉ Nữ</option>
-                      </select>
-                      <select 
-                        className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] outline-none"
-                        value={scrapeFilters.age}
-                        onChange={(e) => setScrapeFilters({...scrapeFilters, age: e.target.value})}
-                      >
-                        <option value="all">Mọi độ tuổi</option>
-                        <option value="Trẻ">Trẻ (18-25)</option>
-                        <option value="Trung niên">Trung niên (26-45)</option>
-                        <option value="Chủ đầu tư">Chủ đầu tư (45+)</option>
-                      </select>
-                    </div>
-                    <button 
-                      onClick={handleScrapeMembers}
-                      disabled={isScanning}
-                      className="w-full mt-2 bg-indigo-600 text-white py-2 rounded-lg text-[10px] font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {isScanning ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
-                      Bắt đầu Quét & Phân loại AI
-                    </button>
                   </div>
                 </div>
 
-                {/* Bulk Actions */}
-                {selectedGroups.length > 0 && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center justify-between p-3 bg-blue-50 rounded-xl border border-blue-100"
-                  >
-                    <span className="text-[11px] font-medium text-blue-700">Đã chọn {selectedGroups.length} nhóm</span>
-                    <button 
-                      onClick={handleJoinSelectedGroups}
-                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[11px] font-bold hover:bg-blue-700 shadow-sm"
-                    >
-                      Tham gia nhóm đã chọn
-                    </button>
-                  </motion.div>
-                )}
+                {/* Joined Groups List */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className="p-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Kết quả tìm kiếm / Nhóm của tôi</span>
-                    <span className="text-[10px] text-slate-400">{groups.length} nhóm</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Nhóm đã tham gia</span>
+                    <span className="text-[10px] text-slate-400">{joinedGroups.length} nhóm</span>
                   </div>
-                  <div className="max-h-[250px] overflow-y-auto custom-scrollbar">
-                    <table className="w-full text-left text-[11px]">
-                      <thead className="bg-slate-50/50 border-b border-slate-100 sticky top-0 z-10 backdrop-blur-sm">
-                        <tr>
-                          <th className="p-2 w-8">
-                            <input 
-                              type="checkbox" 
-                              onChange={(e) => {
-                                if (e.target.checked) setSelectedGroups(groups.map(g => g.id));
-                                else setSelectedGroups([]);
-                              }}
-                              checked={selectedGroups.length === groups.length && groups.length > 0}
-                            />
-                          </th>
-                          <th className="p-2 font-bold text-slate-600">Tên Nhóm</th>
-                          <th className="p-2 font-bold text-slate-600">Thành Viên</th>
-                          <th className="p-2 font-bold text-slate-600">Trạng Thái</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {groups.length > 0 ? groups.map(group => (
-                          <tr key={group.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                            <td className="p-2">
-                              <input 
-                                type="checkbox" 
-                                checked={selectedGroups.includes(group.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) setSelectedGroups(prev => [...prev, group.id]);
-                                  else setSelectedGroups(prev => prev.filter(id => id !== group.id));
-                                }}
-                              />
-                            </td>
-                            <td className="p-2 font-medium">
-                              <button 
-                                onClick={() => handleOpenGroup(group.id)}
-                                className="text-blue-600 hover:underline text-left truncate max-w-[150px] font-semibold"
-                              >
-                                {group.name}
-                              </button>
-                            </td>
-                            <td className="p-2 text-slate-500">{group.members.toLocaleString()}</td>
-                            <td className="p-2">
-                              <span className={cn(
-                                "px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase",
-                                group.status === 'active' ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-500"
-                              )}>
-                                {group.status === 'active' ? "Đã tham gia" : "Chưa tham gia"}
-                              </span>
-                            </td>
-                          </tr>
-                        )) : (
-                          <tr>
-                            <td colSpan={3} className="p-8 text-center text-slate-400 italic">
-                              Chưa có dữ liệu nhóm. Nhấn "Tìm Nhóm Mới" để bắt đầu.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                  <div className="max-h-[150px] overflow-y-auto custom-scrollbar">
+                    {joinedGroups.map(group => (
+                      <div key={group.id} className="p-2 border-b border-slate-50 flex items-center gap-2 hover:bg-slate-50">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedJoinedGroups.includes(group.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedJoinedGroups(prev => [...prev, group.id]);
+                            else setSelectedJoinedGroups(prev => prev.filter(id => id !== group.id));
+                          }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-bold text-slate-700 truncate">{group.name}</p>
+                          <p className="text-[9px] text-slate-500">{group.members.toLocaleString()} thành viên</p>
+                        </div>
+                        <button 
+                          onClick={() => handleOpenGroup(group.id)}
+                          className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                        >
+                          <ExternalLink size={12} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
+
+                {/* Search Results */}
+                {groups.length > 0 && (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-blue-700 uppercase">Kết quả tìm kiếm</span>
+                      <button 
+                        onClick={handleJoinSelectedGroups}
+                        disabled={selectedGroups.length === 0}
+                        className="text-[9px] bg-blue-600 text-white px-2 py-1 rounded font-bold disabled:opacity-50"
+                      >
+                        Tham gia ({selectedGroups.length})
+                      </button>
+                    </div>
+                    <div className="max-h-[150px] overflow-y-auto custom-scrollbar">
+                      {groups.map(group => (
+                        <div key={group.id} className="p-2 border-b border-slate-50 flex items-center gap-2 hover:bg-slate-50">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedGroups.includes(group.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedGroups(prev => [...prev, group.id]);
+                              else setSelectedGroups(prev => prev.filter(id => id !== group.id));
+                            }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-bold text-slate-700 truncate">{group.name}</p>
+                            <p className="text-[9px] text-slate-500">{group.members.toLocaleString()} thành viên</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Scraped Leads Preview */}
                 {scrapedLeads.length > 0 && (
@@ -833,55 +818,65 @@ const Popup = () => {
                 exit={{ opacity: 0, x: 10 }}
                 className="space-y-4"
               >
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                      <User size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-800">Quản lý Bạn bè & Hoạt động</h3>
-                      <p className="text-[11px] text-slate-500">Lọc và tương tác tự động với danh sách bạn bè.</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-slate-600">Lọc kết bạn (Tháng)</label>
-                      <input 
-                        type="number" 
-                        value={friendActivityFilter}
-                        onChange={(e) => setFriendActivityFilter(parseInt(e.target.value))}
-                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                      <p className="text-[9px] text-slate-400 italic">Chỉ kết bạn với người hoạt động trong {friendActivityFilter} tháng qua.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-slate-600">Lọc hủy kết bạn (Tháng)</label>
-                      <input 
-                        type="number" 
-                        value={unfriendActivityFilter}
-                        onChange={(e) => setUnfriendActivityFilter(parseInt(e.target.value))}
-                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                      <p className="text-[9px] text-slate-400 italic">Hủy kết bạn nếu không hoạt động trong {unfriendActivityFilter} tháng.</p>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-500" />
+                      Danh sách Bạn bè ({friends.length})
+                    </h3>
                     <button 
-                      onClick={handleUnfriendInactive}
-                      className="flex-1 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 transition-all shadow-md flex items-center justify-center gap-2"
+                      onClick={fetchFriends}
+                      className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
                     >
-                      <Trash2 size={14} />
-                      Bắt đầu lọc & Hủy kết bạn
+                      <RefreshCw size={14} className={isFetchingFriends ? "animate-spin" : ""} />
                     </button>
                   </div>
+
+                  <div className="max-h-[300px] overflow-y-auto custom-scrollbar space-y-2">
+                    {friends.map(friend => (
+                      <div key={friend.uid} className="p-2 bg-slate-50 rounded-lg border border-slate-100 flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedFriends.includes(friend.uid)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedFriends(prev => [...prev, friend.uid]);
+                            else setSelectedFriends(prev => prev.filter(id => id !== friend.uid));
+                          }}
+                        />
+                        <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden">
+                          <img 
+                            src={friend.avatar || `https://ui-avatars.com/api/?name=${friend.name}`} 
+                            alt="" 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-bold text-slate-800 truncate">{friend.name}</p>
+                          <p className="text-[9px] text-slate-500">Hoạt động: {friend.lastActive}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {friends.length === 0 && (
+                      <p className="text-center py-8 text-slate-400 italic text-xs">Chưa có dữ liệu bạn bè. Nhấn làm mới để quét.</p>
+                    )}
+                  </div>
+
+                  {selectedFriends.length > 0 && (
+                    <button 
+                      onClick={handleUnfriendInactive}
+                      className="w-full py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all shadow-md flex items-center justify-center gap-2"
+                    >
+                      <Trash2 size={14} />
+                      Hủy kết bạn ({selectedFriends.length})
+                    </button>
+                  )}
                 </div>
 
                 <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 flex gap-3">
                   <AlertCircle className="text-amber-600 shrink-0" size={18} />
                   <p className="text-[10px] text-amber-800 leading-relaxed">
-                    <b>Lưu ý:</b> Tính năng này sẽ quét danh sách bạn bè của bạn. Quá trình có thể mất vài phút tùy vào số lượng bạn bè. AI sẽ tự động phân tích bài viết mới nhất để xác định mức độ hoạt động.
+                    <b>Lưu ý:</b> Hãy cẩn thận khi hủy kết bạn hàng loạt. AI sẽ giúp bạn lọc những người ít tương tác nhất.
                   </p>
                 </div>
               </motion.div>
