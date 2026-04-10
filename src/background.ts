@@ -148,12 +148,12 @@ export const scanFacebookCookies = async () => {
           func: () => {
             try {
               // Lấy UID và Name từ CurrentUserInitialData
-              const userData = window.require('CurrentUserInitialData');
+              const userData = (window as any).require('CurrentUserInitialData');
+              const lsd = (window as any).require('LSD');
               
               // Thử lấy Access Token từ các biến toàn cục nếu có (thường là EAAG...)
               let accessToken = null;
               try {
-                // Một số trang FB có chứa token trong source
                 const scripts = Array.from(document.querySelectorAll('script'));
                 for (const script of scripts) {
                   const match = script.textContent?.match(/(EAAG\w+)/);
@@ -164,12 +164,18 @@ export const scanFacebookCookies = async () => {
                 }
               } catch (e) {}
 
+              // Lấy Avatar từ CurrentUserInitialData nếu có
+              let profilePic = userData.ACCOUNT_ID 
+                ? `https://graph.facebook.com/${userData.ACCOUNT_ID}/picture?type=large`
+                : `https://graph.facebook.com/${userData.USER_ID}/picture?type=large`;
+
               return {
-                uid: userData.USER_ID,
-                name: userData.NAME || userData.ACCOUNT_NAME,
+                uid: userData.USER_ID || userData.ACCOUNT_ID,
+                name: userData.NAME || userData.ACCOUNT_NAME || userData.SHORT_NAME,
                 shortName: userData.SHORT_NAME,
                 accessToken: accessToken,
-                profilePic: `https://graph.facebook.com/${userData.USER_ID}/picture?type=large&access_token=${accessToken || ''}`
+                profilePic: profilePic,
+                fb_dtsg: (window as any).require('DTSGInitialData')?.token || lsd?.token
               };
             } catch (e) {
               const match = document.cookie.match(/c_user=(\d+)/);
@@ -183,14 +189,12 @@ export const scanFacebookCookies = async () => {
           if (res.uid) uid = res.uid;
           if (res.name) await storage.set("userName", res.name);
           
-          // Cải tiến lấy Avatar: Thử lấy từ Graph API nếu có token, nếu không dùng link trực tiếp
-          let finalAvatar = res.profilePic;
-          if (!res.accessToken) {
-            finalAvatar = `https://graph.facebook.com/${uid}/picture?type=large`;
-          }
+          // Ưu tiên Avatar từ Facebook CDN trực tiếp để tránh lỗi Graph API Token
+          const finalAvatar = res.uid ? `https://www.facebook.com/profile/picture/view/?id=${res.uid}` : res.profilePic;
           await storage.set("profilePic", finalAvatar);
           
           if (res.accessToken) token = res.accessToken;
+          if (res.fb_dtsg) await storage.set("fb_dtsg", res.fb_dtsg);
         }
       }
 
@@ -289,9 +293,9 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
             world: "MAIN",
             func: async (keyword: string) => {
               try {
-                const fb_dtsg = (window as any).require('DTSGInitialData').token;
+                const fb_dtsg = (window as any).require('DTSGInitialData')?.token || (window as any).require('LSD')?.token;
                 
-                // Thử tìm kiếm nhóm qua GraphQL với doc_id phổ biến
+                // Thử tìm kiếm nhóm qua GraphQL
                 const response = await fetch('https://www.facebook.com/api/graphql/', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -320,7 +324,24 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                   }));
                 }
 
-                return [];
+                // Fallback: Tìm kiếm qua mobile site nếu GraphQL thất bại
+                const mobileSearchUrl = `https://m.facebook.com/search/groups/?q=${encodeURIComponent(keyword)}`;
+                const mobileRes = await fetch(mobileSearchUrl);
+                const mobileHtml = await mobileRes.text();
+                // Phân tích HTML đơn giản để lấy ID và Name (Regex)
+                const groupMatches = mobileHtml.matchAll(/\/groups\/(\d+)\/.*?>(.*?)<\/a>/g);
+                const results: any[] = [];
+                for (const match of groupMatches) {
+                  if (results.length >= 10) break;
+                  results.push({
+                    id: match[1],
+                    name: match[2].replace(/<.*?>/g, ''),
+                    members: 0,
+                    status: "pending",
+                    url: `https://www.facebook.com/groups/${match[1]}`
+                  });
+                }
+                return results;
               } catch (e) {
                 return [];
               }
@@ -335,7 +356,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
           if (groups.length > 0) {
             sendResponse({ success: true, groups });
           } else {
-            sendResponse({ success: false, error: "Không tìm thấy nhóm. Hãy thử từ khóa khác." });
+            sendResponse({ success: false, error: "Không tìm thấy nhóm hoặc lỗi kết nối Facebook." });
           }
         } else {
           sendResponse({ success: false, error: "Vui lòng mở Facebook" });
@@ -354,8 +375,8 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
             world: "MAIN",
             func: async () => {
               try {
-                const fb_dtsg = (window as any).require('DTSGInitialData').token;
-                const uid = (window as any).require('CurrentUserInitialData').USER_ID;
+                const fb_dtsg = (window as any).require('DTSGInitialData')?.token || (window as any).require('LSD')?.token;
+                const uid = (window as any).require('CurrentUserInitialData')?.USER_ID;
                 
                 const response = await fetch('https://www.facebook.com/api/graphql/', {
                   method: 'POST',
@@ -373,12 +394,16 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                 const data = await response.json();
                 const edges = data?.data?.user?.friends?.edges || [];
                 
-                return edges.map((e: any) => ({
-                  uid: e.node.id,
-                  name: e.node.name,
-                  avatar: e.node.profile_picture?.uri || `https://graph.facebook.com/${e.node.id}/picture?type=square`,
-                  lastActive: "Gần đây"
-                }));
+                if (edges.length > 0) {
+                  return edges.map((e: any) => ({
+                    uid: e.node.id,
+                    name: e.node.name,
+                    avatar: e.node.profile_picture?.uri || `https://graph.facebook.com/${e.node.id}/picture?type=square`,
+                    lastActive: "Gần đây"
+                  }));
+                }
+
+                return [];
               } catch (e) {
                 return [];
               }
@@ -387,12 +412,11 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
           
           let friends = results[0].result as any[];
           if (friends && friends.length > 0) {
-            // Lưu vào storage để persist
             const { storage } = await import("./storage");
             await storage.set("friendsList", friends);
             sendResponse({ success: true, friends });
           } else {
-            sendResponse({ success: false, error: "Không thể lấy danh sách bạn bè." });
+            sendResponse({ success: false, error: "Không thể lấy danh sách bạn bè. Hãy thử tải lại trang Facebook." });
           }
         } else {
           sendResponse({ success: false, error: "Vui lòng mở Facebook" });
@@ -411,7 +435,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
             world: "MAIN",
             func: async () => {
               try {
-                const fb_dtsg = (window as any).require('DTSGInitialData').token;
+                const fb_dtsg = (window as any).require('DTSGInitialData')?.token || (window as any).require('LSD')?.token;
                 const response = await fetch('https://www.facebook.com/api/graphql/', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -423,13 +447,17 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                 });
                 const data = await response.json();
                 const nodes = data?.data?.viewer?.joined_groups?.edges || [];
-                return nodes.map((n: any) => ({
-                  id: n.node.id,
-                  name: n.node.name,
-                  members: n.node.group_members?.count || 0,
-                  status: "active",
-                  url: `https://www.facebook.com/groups/${n.node.id}`
-                }));
+                
+                if (nodes.length > 0) {
+                  return nodes.map((n: any) => ({
+                    id: n.node.id,
+                    name: n.node.name,
+                    members: n.node.group_members?.count || 0,
+                    status: "active",
+                    url: `https://www.facebook.com/groups/${n.node.id}`
+                  }));
+                }
+                return [];
               } catch (e) {
                 return [];
               }
@@ -442,7 +470,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
             await storage.set("joinedGroups", groups);
             sendResponse({ success: true, groups });
           } else {
-            sendResponse({ success: false, error: "Không thể lấy danh sách nhóm." });
+            sendResponse({ success: false, error: "Không thể lấy danh sách nhóm đã tham gia." });
           }
         } else {
           sendResponse({ success: false, error: "Vui lòng mở Facebook" });

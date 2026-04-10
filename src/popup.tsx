@@ -99,7 +99,17 @@ const Popup = () => {
   const [selectedJoinedGroups, setSelectedJoinedGroups] = useState<string[]>([]);
   const [isFetchingFriends, setIsFetchingFriends] = useState(false);
   const [isFetchingGroups, setIsFetchingGroups] = useState(false);
-  
+  const [scrapeFilters, setScrapeFilters] = useState({ gender: "all", age: "all" });
+  const [isSearchingGroups, setIsSearchingGroups] = useState(false);
+  const [aiVariations, setAiVariations] = useState<string[]>([]);
+  const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [friendActivityFilter, setFriendActivityFilter] = useState(5); // 5 months
+  const [unfriendActivityFilter, setUnfriendActivityFilter] = useState(3); // 3 months
+  const [knowledgeBase, setKnowledgeBase] = useState("");
+  const [profilePic, setProfilePic] = useState<string | null>(null);
+
   // Load leads and scheduled posts from storage on init
   useEffect(() => {
     storage.get<Lead[]>("scrapedLeads").then(leads => {
@@ -108,14 +118,19 @@ const Popup = () => {
     storage.get<any[]>("scheduledPosts").then(posts => {
       if (posts) setScheduledPosts(posts || []);
     });
+    storage.get<string[]>("aiVariations").then(variations => {
+      if (variations) setAiVariations(variations);
+    });
   }, []);
 
   // Save leads to storage whenever they change
   useEffect(() => {
     storage.set("scrapedLeads", scrapedLeads);
   }, [scrapedLeads]);
-  const [scrapeFilters, setScrapeFilters] = useState({ gender: "all", age: "all" });
-  const [isSearchingGroups, setIsSearchingGroups] = useState(false);
+
+  useEffect(() => {
+    storage.set("aiVariations", aiVariations);
+  }, [aiVariations]);
 
   // AI Post State
   const [postData, setPostData] = useState({
@@ -127,14 +142,8 @@ const Popup = () => {
     numVariations: 10,
     randomize: true
   });
-  const [aiVariations, setAiVariations] = useState<string[]>([]);
-  const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
-  const [scheduleTime, setScheduleTime] = useState("");
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
-  const [friendActivityFilter, setFriendActivityFilter] = useState(5); // 5 months
-  const [unfriendActivityFilter, setUnfriendActivityFilter] = useState(3); // 3 months
-  const [knowledgeBase, setKnowledgeBase] = useState("");
-  const [profilePic, setProfilePic] = useState<string | null>(null);
+  
+  // Load leads and scheduled posts from storage on init
 
   // Settings State
   const [settings, setSettings] = useState({
@@ -350,6 +359,7 @@ const Popup = () => {
         knowledgeBase: knowledgeBase
       });
       setAiVariations(variations);
+      await storage.set("aiVariations", variations);
       showToast("Đã tạo nội dung AI thành công!", "success");
     } catch (error) {
       showToast((error as Error).message, "error");
