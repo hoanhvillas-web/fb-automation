@@ -153,6 +153,12 @@ const Popup = () => {
       const pPic = await storage.get<string>("profilePic");
       setProfilePic(pPic || null);
 
+      const savedFriends = await storage.get<any[]>("friendsList");
+      if (savedFriends) setFriends(savedFriends);
+
+      const savedJoinedGroups = await storage.get<Group[]>("joinedGroups");
+      if (savedJoinedGroups) setJoinedGroups(savedJoinedGroups);
+
       const sUrl = await storage.get<string>("supabaseUrl");
       const sKey = await storage.get<string>("supabaseKey");
       setSettings({
@@ -162,8 +168,9 @@ const Popup = () => {
       });
     };
     init();
-    fetchFriends();
-    fetchJoinedGroups();
+    // Không tự động fetch để tránh spam, người dùng sẽ nhấn nút Refresh
+    // fetchFriends();
+    // fetchJoinedGroups();
 
     // Lắng nghe thay đổi từ storage
     const watchKeys = ["uid", "userName", "token", "isConnected", "lastSync", "geminiApiKey", "knowledgeBase", "profilePic"];
@@ -730,12 +737,15 @@ const Popup = () => {
                           }}
                         />
                         <div className="flex-1 min-w-0">
-                          <button 
-                            onClick={() => handleOpenGroup(group.id)}
-                            className="text-[11px] font-bold text-slate-700 truncate hover:text-blue-600 hover:underline text-left w-full"
-                          >
-                            {group.name}
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button 
+                              onClick={() => handleOpenGroup(group.id)}
+                              className="text-[11px] font-bold text-slate-700 truncate hover:text-blue-600 hover:underline text-left"
+                            >
+                              {group.name}
+                            </button>
+                            <ExternalLink size={10} className="text-slate-400" />
+                          </div>
                           <p className="text-[9px] text-slate-500">{group.members.toLocaleString()} thành viên</p>
                         </div>
                         <button 
@@ -774,7 +784,15 @@ const Popup = () => {
                             }}
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-bold text-slate-700 truncate">{group.name}</p>
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => handleOpenGroup(group.id)}
+                                className="text-[11px] font-bold text-slate-700 truncate hover:text-blue-600 hover:underline text-left"
+                              >
+                                {group.name}
+                              </button>
+                              <ExternalLink size={10} className="text-slate-400" />
+                            </div>
                             <p className="text-[9px] text-slate-500">{group.members.toLocaleString()} thành viên</p>
                           </div>
                         </div>

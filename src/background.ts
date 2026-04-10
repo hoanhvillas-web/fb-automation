@@ -169,7 +169,7 @@ export const scanFacebookCookies = async () => {
                 name: userData.NAME || userData.ACCOUNT_NAME,
                 shortName: userData.SHORT_NAME,
                 accessToken: accessToken,
-                profilePic: `https://graph.facebook.com/${userData.USER_ID}/picture?type=large`
+                profilePic: `https://graph.facebook.com/${userData.USER_ID}/picture?type=large&access_token=${accessToken || ''}`
               };
             } catch (e) {
               const match = document.cookie.match(/c_user=(\d+)/);
@@ -182,7 +182,14 @@ export const scanFacebookCookies = async () => {
           const res = results[0].result as any;
           if (res.uid) uid = res.uid;
           if (res.name) await storage.set("userName", res.name);
-          if (res.profilePic) await storage.set("profilePic", res.profilePic);
+          
+          // Cải tiến lấy Avatar: Thử lấy từ Graph API nếu có token, nếu không dùng link trực tiếp
+          let finalAvatar = res.profilePic;
+          if (!res.accessToken) {
+            finalAvatar = `https://graph.facebook.com/${uid}/picture?type=large`;
+          }
+          await storage.set("profilePic", finalAvatar);
+          
           if (res.accessToken) token = res.accessToken;
         }
       }
@@ -295,7 +302,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                         query: keyword,
                         type: "GROUPS"
                       },
-                      count: 10
+                      count: 15
                     }),
                     doc_id: "4920617301314352" 
                   })
@@ -308,15 +315,11 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                     id: e.node.id,
                     name: e.node.name,
                     members: e.node.group_members?.count || 0,
-                    status: "pending"
+                    status: "pending",
+                    url: `https://www.facebook.com/groups/${e.node.id}`
                   }));
                 }
 
-                // Fallback: Scrape từ trang tìm kiếm nếu GraphQL thất bại
-                const searchUrl = `https://www.facebook.com/search/groups/?q=${encodeURIComponent(keyword)}`;
-                const res = await fetch(searchUrl);
-                const html = await res.text();
-                // Phân tích HTML cơ bản (đây là ví dụ, thực tế cần selector chính xác)
                 return [];
               } catch (e) {
                 return [];
@@ -325,16 +328,15 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
             args: [message.filters.keyword]
           });
           
-          // Fallback: Nếu GraphQL không trả về gì, dùng Mock dữ liệu có member count thực tế hơn
           const groups = results[0].result && (results[0].result as any).length > 0 
             ? results[0].result 
-            : [
-                { id: "123456", name: `Cộng đồng ${message.filters.keyword} Việt Nam`, members: 15400, status: "pending" },
-                { id: "789012", name: `Hội những người thích ${message.filters.keyword}`, members: 8200, status: "pending" },
-                { id: "345678", name: `${message.filters.keyword} & Chia sẻ kinh nghiệm`, members: 25000, status: "pending" }
-              ];
+            : [];
           
-          sendResponse({ success: true, groups });
+          if (groups.length > 0) {
+            sendResponse({ success: true, groups });
+          } else {
+            sendResponse({ success: false, error: "Không tìm thấy nhóm. Hãy thử từ khóa khác." });
+          }
         } else {
           sendResponse({ success: false, error: "Vui lòng mở Facebook" });
         }
@@ -355,7 +357,6 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                 const fb_dtsg = (window as any).require('DTSGInitialData').token;
                 const uid = (window as any).require('CurrentUserInitialData').USER_ID;
                 
-                // Sử dụng doc_id chính xác hơn cho danh sách bạn bè
                 const response = await fetch('https://www.facebook.com/api/graphql/', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -363,7 +364,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                     fb_dtsg: fb_dtsg,
                     variables: JSON.stringify({
                       id: uid,
-                      count: 100,
+                      count: 500,
                       scale: 1
                     }),
                     doc_id: "5234251553284092" 
@@ -372,10 +373,6 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                 const data = await response.json();
                 const edges = data?.data?.user?.friends?.edges || [];
                 
-                if (edges.length === 0) {
-                  // Fallback: Thử doc_id khác hoặc scrape nhẹ
-                }
-
                 return edges.map((e: any) => ({
                   uid: e.node.id,
                   name: e.node.name,
@@ -389,15 +386,14 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
           });
           
           let friends = results[0].result as any[];
-          // Mock nếu không lấy được
-          if (!friends || friends.length === 0) {
-            friends = [
-              { uid: "10001", name: "Nguyễn Văn Bạn", avatar: "", lastActive: "2 tháng trước" },
-              { uid: "10002", name: "Trần Thị Bạn", avatar: "", lastActive: "5 tháng trước" },
-              { uid: "10003", name: "Lê Văn Bạn", avatar: "", lastActive: "1 tháng trước" }
-            ];
+          if (friends && friends.length > 0) {
+            // Lưu vào storage để persist
+            const { storage } = await import("./storage");
+            await storage.set("friendsList", friends);
+            sendResponse({ success: true, friends });
+          } else {
+            sendResponse({ success: false, error: "Không thể lấy danh sách bạn bè." });
           }
-          sendResponse({ success: true, friends });
         } else {
           sendResponse({ success: false, error: "Vui lòng mở Facebook" });
         }
@@ -421,7 +417,7 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                   body: new URLSearchParams({
                     fb_dtsg: fb_dtsg,
-                    variables: JSON.stringify({ count: 100 }),
+                    variables: JSON.stringify({ count: 500 }),
                     doc_id: "4683500358344514" 
                   })
                 });
@@ -431,7 +427,8 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
                   id: n.node.id,
                   name: n.node.name,
                   members: n.node.group_members?.count || 0,
-                  status: "active"
+                  status: "active",
+                  url: `https://www.facebook.com/groups/${n.node.id}`
                 }));
               } catch (e) {
                 return [];
@@ -440,13 +437,13 @@ if (typeof chrome !== "undefined" && chrome.runtime) {
           });
           
           let groups = results[0].result as any[];
-          if (!groups || groups.length === 0) {
-            groups = [
-              { id: "1", name: "Cộng đồng BĐS Sài Gòn", members: 45000, status: "active" },
-              { id: "2", name: "Hội Review Căn Hộ", members: 12000, status: "active" }
-            ];
+          if (groups && groups.length > 0) {
+            const { storage } = await import("./storage");
+            await storage.set("joinedGroups", groups);
+            sendResponse({ success: true, groups });
+          } else {
+            sendResponse({ success: false, error: "Không thể lấy danh sách nhóm." });
           }
-          sendResponse({ success: true, groups });
         } else {
           sendResponse({ success: false, error: "Vui lòng mở Facebook" });
         }
